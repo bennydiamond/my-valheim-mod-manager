@@ -1,0 +1,1 @@
+pyinstaller --clean --onefile modpack_manager.py
