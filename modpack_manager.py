@@ -1,5 +1,6 @@
 import secreturls
 import os
+import sys
 import shutil
 import argparse
 import hashlib
@@ -10,6 +11,7 @@ import requests
 from tqdm.auto import tqdm
 from consolemenu import *
 from consolemenu.items import *
+import webbrowser
 
 Version = "0.1"
 
@@ -50,7 +52,9 @@ HashExcludeFolders = [
                      ]
 HashExcludeList = [
                     'BepInEx\\LogOutput.log',
-                    'BepInEx\\plugins\\MultiUserChest-log.txt'
+                    'BepInEx\\plugins\\MultiUserChest-log.txt',
+                    ValheimVRConfigPath,
+                    AugaConfigPath
                   ]
 
 def fmove(src,dest):
@@ -82,13 +86,21 @@ def validateModInstall():
     Validate if in the same dir as valheim.exe
     '''
     file_exists = os.path.exists(ValheimExePath)
-    '''
-    valheimVRConfig.read(ValheimVRConfigPath)
-    augaVRConfig.read(AugaConfigPath)
-    file_exists &= valheimVRConfig.has_option(ValheimVRNonVRCategoryName, ValheimVRNonVREntryName)
-    file_exists &= augaVRConfig.has_option(AugaVRCategoryName, AugaVRModeConfigEntryName)
-    '''
+
     return file_exists
+
+def validateVRConfigFiles():
+    '''
+    Validate that the two mods' config files are present and contains some config entries.
+    '''
+    try:
+        valheimVRConfig.read(ValheimVRConfigPath)
+        augaVRConfig.read(AugaConfigPath)
+        file_exists = valheimVRConfig.has_option(ValheimVRNonVRCategoryName, ValheimVRNonVREntryName)
+        file_exists &= augaVRConfig.has_option(AugaVRCategoryName, AugaVRModeConfigEntryName)
+        return file_exists
+    except:
+        return False
 
 def isVRActive():
     '''
@@ -138,6 +150,7 @@ def generateMD5list(exePath):
                     if not hashesConfig.has_section(root):
                         hashesConfig.add_section(root)
                     if os.path.join(root, file) == ValheimVRConfigPath:
+                        '''
                         enableVRMode()
                         multihash1 = str()
                         with open(os.path.join(root, file), 'rb') as _file:
@@ -147,7 +160,9 @@ def generateMD5list(exePath):
                         with open(os.path.join(root, file), 'rb') as _file:
                             multihash1 += str(hashlib.md5(_file.read()).hexdigest())
                         hashesConfig.set(root, file, multihash1)
+                        '''
                     elif os.path.join(root, file) == AugaConfigPath:
+                        '''
                         enableVRMode()
                         multihash1
                         with open(os.path.join(root, file), 'rb') as _file:
@@ -157,6 +172,7 @@ def generateMD5list(exePath):
                         with open(os.path.join(root, file), 'rb') as _file:
                             multihash1 += str(hashlib.md5(_file.read()).hexdigest())
                         hashesConfig.set(root, file, multihash1)
+                        '''
                     else:
                         with open(os.path.join(root, file), 'rb') as _file:
                             hashesConfig.set(root, file, str(hashlib.md5(_file.read()).hexdigest()))        
@@ -196,12 +212,10 @@ def checkMD5(HashesFilepath, mustMoveExtraFiles, silent):
     for section in hashesConfig.sections():
         for (filename, hash) in hashesConfig.items(section):
             try:
-                if not hashesList[os.path.join(section, filename)]:
-                    missingMods.append(os.path.join(section, filename))
-                else:
-                    if hashesList[os.path.join(section, filename)] not in hashesConfig[section][filename].split(','):
-                        wrongHashList.append(os.path.join(section, filename))
+                if hashesList[os.path.join(section, filename)] not in hashesConfig[section][filename].split(','):
+                    wrongHashList.append(os.path.join(section, filename))
             except Exception: 
+                missingMods.append(os.path.join(section, filename))
                 pass
 
     if silent is False and missingMods:
@@ -212,7 +226,7 @@ def checkMD5(HashesFilepath, mustMoveExtraFiles, silent):
         print("\r\nErreur. Les mods suivants sont corrompes dans votre installation de Valheim.\r\nLa connection au serveur pourrait être refusée!")
         print(*wrongHashList, sep = "\r\n")
 
-    return not missingMods and not wrongHashList
+    return not missingMods and not wrongHashList and validateVRConfigFiles()
 
 def installModpack(manifest, hashesFilepath):
     '''
@@ -328,7 +342,12 @@ def findValheimInstallLocation(steamPath):
     return
 
 def main():
-    exePath = os.path.abspath(__file__)
+    # Running from Pyinstaller generated EXE?
+    if getattr(sys, 'frozen', False):
+        exePath = sys.executable
+    elif __file__:
+        # Then running from python .py
+        exePath = __file__
 
     # Find Valheim install folder
     if os.name == 'nt':
@@ -340,6 +359,11 @@ def main():
 
     # Check if Valheim is installed
     if validateModInstall():
+        # Parse args when program is invoked
+        parser = argparse.ArgumentParser()
+        # Used to generate a hash list, when updating modpack. Should not be active for normal use.
+        parser.add_argument("-g", "--generate", action='store_true')
+        args = parser.parse_args()
 
         # Download manifest file from http server
         serverIsUp = downloadFile(secreturls.ManifestURL, ManifestFile)
@@ -349,24 +373,22 @@ def main():
         manifest.read(ManifestFile)
 
         if serverIsUp is not True:
-            print("Attention!!! Le serveur distant est innacessible.\r\nLes options seront limitées.")
+            print("\r\nAttention!!! Le serveur distant est innacessible.\r\nLes options seront limitées.")
 
         # Check Program's version
         versionOk = checkManagerVersion(manifest)
         if versionOk is False:
-            print("Téléchargement de la nouvelle version du modpack manager.\r\nL'application va quitter. Veuillez la relancer.")
-            # TODO if false download and replace
-            downloadFile(manifest['DEFAULT']['url'], exePath)
+            # TODO find a way to auto-update
+            #downloadFile(manifest['DEFAULT']['url'], exePath)
+            print("\r\nL'application n'est pas à jour. Je vais ouvrir une page dans votre navigateur pour lancer le téléchargement.")
+            input("Appuyez sur la touche Enter pour ouvrir une page web et quitter l'application...")
+            webbrowser.open(manifest['DEFAULT']['url'], new=2)
             return
 
-        # Check if hash list file is present and up-to-date. If not, download a copy and validates it
-        hashesFilepath = checkHashesListFileAndDownloadIfRequired(manifest)
+        if not args.generate:
+            # Check if hash list file is present and up-to-date. If not, download a copy and validates it
+            hashesFilepath = checkHashesListFileAndDownloadIfRequired(manifest)
 
-        # Parse args when program is invoked
-        parser = argparse.ArgumentParser()
-        # Used to generate a hash list, when updating modpack. Should not be active for normal use.
-        parser.add_argument("-g", "--generate", action='store_true')
-        args = parser.parse_args()
 
         menu = ConsoleMenu("Modpack manager " + Version, "Serveur des Ben shaftés\r\nModpack bien installé.\r\nVoici vos options.")
         if args.generate:
@@ -394,4 +416,10 @@ def main():
         print("Modpack manager " + Version + "\r\nServeur des Ben shafté\r\n\r\nErreur!!! Le programme ne peut pas trouver votre installation de Valheim.\r\nCe programme devrait se trouver dans le même dossier que l'exécutable valheim.exe.")
 
 if __name__=="__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        result = False
+        print("\r\n MEGA Erreur!!!\r\nenvoyer le texte suivant au développeur:")
+        print(e)
+        input("Appuyez sur la touche Enter quitter...")
