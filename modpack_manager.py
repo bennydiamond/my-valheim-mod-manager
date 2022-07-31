@@ -38,6 +38,10 @@ ValheimVRConfigPath = "BepInEx\\config\\org.bepinex.plugins.valheimvrmod.cfg"
 ValheimVRNonVRCategoryName = "Immutable"
 ValheimVRNonVREntryName = "nonVrPlayer"
 
+AugaPluginBaseLocation = "BepInEx\\plugins"
+AugaPluginFolderPrfix = "ProjectAuga_"
+AugaPluginNameEnabled = "Auga.dll"
+AugaPluginNameDisabled = "Auga.dll.bak"
 AugaConfigPath = "BepInEx\\config\\randyknapp.mods.auga.cfg"
 AugaVRCategoryName = "Options"
 AugaVRModeConfigEntryName = "UseAugaVR"
@@ -111,6 +115,27 @@ def isVRActive():
 def isVRDisabled():
     return valheimVRConfig.getboolean(ValheimVRNonVRCategoryName, ValheimVRNonVREntryName) is True and augaVRConfig.getboolean(AugaVRCategoryName, AugaVRModeConfigEntryName) is False
 
+def getAugaPluginLocation():
+    for root,dirs,files in os.walk(AugaPluginBaseLocation):
+        for a_dir in dirs:
+            if (AugaPluginFolderPrfix in a_dir):
+                return os.path.join(root,a_dir)
+
+    return None
+
+def isAugaEnabled(pluginPath):
+    return os.path.exists(os.path.join(pluginPath, AugaPluginNameEnabled))
+
+def enableAuga(pluginPath):
+    curPath = os.path.join(pluginPath, AugaPluginNameDisabled)
+    newPath = os.path.join(pluginPath, AugaPluginNameEnabled)
+    shutil.copyfile(curPath, newPath)
+
+def disableAuga(pluginPath):
+    curPath = os.path.join(pluginPath, AugaPluginNameEnabled)
+    if os.path.exists(curPath):
+        os.remove(curPath)
+
 def enableVRMode():
     valheimVRConfig[ValheimVRNonVRCategoryName][ValheimVRNonVREntryName] = "false"
     augaVRConfig[AugaVRCategoryName][AugaVRModeConfigEntryName] = "true"
@@ -143,6 +168,8 @@ def generateMD5list(exePath):
     hashesConfig = configparser.ConfigParser()
     hashesConfig.optionxform = str # Preserve capitalization
     hashes = open(os.path.join(exePath, DefaultHashesFilepath), 'w')
+    augaPluginLocation = getAugaPluginLocation()
+    disableAuga(augaPluginLocation)
     for root, subdirs, files in os.walk(ModFolderPath):
         if root not in HashExcludeFolders: # Exclude whole folders
             for file in files:
@@ -399,6 +426,11 @@ def main():
             menu.show()
         else:
             print("Validation de vos fichiers mods. Si vous voyez ce message pendant longtemps, achetez-vous un SSD!")
+
+            augaPluginLocation = getAugaPluginLocation()
+            if isAugaEnabled(augaPluginLocation):
+                HashExcludeList.append(os.path.join(augaPluginLocation, AugaPluginNameEnabled))
+
             if checkMD5(hashesFilepath, not MustMoveExtraFiles, not SilentCheckMD5):
                 valheimVRConfig.read(ValheimVRConfigPath)
                 augaVRConfig.read(AugaConfigPath)
@@ -406,6 +438,12 @@ def main():
                     menu.append_item(FunctionItem("Activer le mode VR", enableVRMode, should_exit=True))
                 if not isVRDisabled():
                     menu.append_item(FunctionItem("Désactiver le mode VR", disableVRMode, should_exit=True))
+                
+                if augaPluginLocation is not None:
+                    if isAugaEnabled(augaPluginLocation):
+                        menu.append_item(FunctionItem("Désactiver la nouvelle interface graphique(retour à l'origine)", disableAuga, args=[augaPluginLocation], should_exit=True))
+                    else:
+                        menu.append_item(FunctionItem("Activer la nouvelle interface graphique(quelques bugs d'affichage)", enableAuga, args=[augaPluginLocation], should_exit=True))
 
                 menu.append_item(FunctionItem("Ré-installer le modpack", installModpack, args=[manifest, hashesFilepath], should_exit=True))
             else:
